@@ -1,6 +1,8 @@
 [package]
-name = "cli"
+name = "wasaupdate"
 edition = "2024"
 
 [dependencies]
+clap = { version = "4.5.42", features = ["derive"] }
+git-version = "0.3.9"
 lib = { path = "../lib" }

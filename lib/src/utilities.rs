@@ -27,9 +27,20 @@ pub fn run(cmd: &str) -> Result<String, Box<EvalAltResult>> {
     let args = &command_parts[1..];
     let output = match std::process::Command::new(command).args(args).output() {
         Ok(o) => o,
-        Err(e) => {
-            let error_msg = format!("Failed to execute command '{}': {}", cmd, e);
-            return Err(error_msg.into());
+        Err(_) => {
+            let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            let current_dir = current_exe
+                .parent()
+                .ok_or("Current executable has no parent directory")?;
+            let cmd_path = current_dir.join(command);
+            let output = std::process::Command::new(cmd_path).args(args).output();
+            match output {
+                Ok(o) => o,
+                Err(e) => {
+                    let error_msg = format!("Failed to execute command '{}': {}", cmd, e);
+                    return Err(error_msg.into());
+                }
+            }
         }
     };
     if output.status.success() {

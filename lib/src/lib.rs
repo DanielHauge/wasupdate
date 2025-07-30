@@ -1,3 +1,3 @@
-mod install;
-mod rhai;
-mod utilities;
+pub mod install;
+pub mod rhai;
+pub mod utilities;

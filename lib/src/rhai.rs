@@ -1,9 +1,9 @@
-use std::{fmt::format, path::PathBuf};
+use std::path::PathBuf;
 
 use rhai::{AST, Engine, EvalAltResult, Scope};
-use semver::{Op, Version};
+use semver::Version;
 
-use crate::{install::install_archive, utilities};
+use crate::utilities;
 
 pub type RhaiResult<T> = std::result::Result<T, Box<EvalAltResult>>;
 
@@ -26,7 +26,8 @@ impl WasaupEngine {
         let semver_str =
             self.engine
                 .call_fn::<String>(&mut Scope::new(), &self.ast, CURRENT_VERSION_FN, ())?;
-        let semver = match semver::Version::parse(&semver_str) {
+        let semver_str = semver_str.trim();
+        let semver = match semver::Version::parse(semver_str) {
             Ok(version) => version,
             Err(e) => {
                 let error_msg = format!("Failed to parse '{semver_str}' as current version: {}", e);
@@ -41,7 +42,8 @@ impl WasaupEngine {
         let semver_str =
             self.engine
                 .call_fn::<String>(&mut Scope::new(), &self.ast, LATEST_VERSION_FN, ())?;
-        let semver = match semver::Version::parse(&semver_str) {
+        let semver_str = semver_str.trim();
+        let semver = match semver::Version::parse(semver_str) {
             Ok(version) => version,
             Err(e) => {
                 let error_msg = format!("Failed to parse '{semver_str}' as latest version: {}", e);
@@ -228,5 +230,42 @@ mod tests {
             .install_version("1.0.0")
             .expect("Failed to install version");
         assert_eq!(install_path, "path/to/archive-1.0.0.tar.gz");
+    }
+
+    #[test]
+    fn test_new_engine_from_file() {
+        let script_path = PathBuf::from("test_script.rhai");
+        std::fs::write(
+            &script_path,
+            format!(
+                "{}\n{}\n{}",
+                TEST_CURRENT_VERSION, TEST_LATEST_VERSION, TEST_INSTALL_VERSION
+            ),
+        )
+        .expect("Failed to write test script file");
+
+        let script = Script::File(script_path);
+        let engine = WasaupEngine::new(script).expect("Failed to create WasaupEngine from file");
+
+        // Test current version
+        let current_version = engine
+            .current_version()
+            .expect("Failed to get current version");
+        assert_eq!(current_version.to_string(), "0.9.0");
+
+        // Test latest version
+        let latest_version = engine
+            .latest_version()
+            .expect("Failed to get latest version");
+        assert_eq!(latest_version.to_string(), "1.0.0");
+
+        // Test install version
+        let install_path = engine
+            .install_version("1.0.0")
+            .expect("Failed to install version");
+        assert_eq!(install_path, "path/to/archive-1.0.0.tar.gz");
+
+        // Clean up the test script file
+        std::fs::remove_file("test_script.rhai").expect("Failed to remove test script file");
     }
 }

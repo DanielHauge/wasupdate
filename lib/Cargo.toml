@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+flate2 = "1.1.2"
 reqwest = { version = "0.12.22", features = ["blocking"] }
 rhai = "1.22.2"
 semver = "1.0.26"
+tar = "0.4.44"
+zip = "4.3.0"
