@@ -1,0 +1,6 @@
+[package]
+name = "cli"
+edition = "2024"
+
+[dependencies]
+lib = { path = "../lib" }
