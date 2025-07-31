@@ -1,40 +1,42 @@
 use std::{
     env::{self, temp_dir},
     fs::{self, File},
-    io::{Error, copy},
+    io::{self, Error, Read, Write, copy},
     path::PathBuf,
 };
 
 use flate2::bufread::GzDecoder;
 use reqwest::blocking::get;
 
-pub fn install(loc: &str) -> std::io::Result<()> {
+pub fn install(loc: &str) -> io::Result<()> {
     let path = PathBuf::from(loc);
     if path.exists() && path.is_file() {
+        eprintln!("Installing from local archive: {:?}", path);
         install_archive(&path)
     } else {
+        eprintln!("Downloading and installing from URL: {}", loc);
         download_install_archive(loc)
     }
 }
 
-pub fn install_archive(path: &PathBuf) -> std::io::Result<()> {
+pub fn install_archive(path: &PathBuf) -> io::Result<()> {
     match path.extension() {
         Some(ext) if ext == "zip" => install_from_zip(path),
         Some(ext) if ext == "tar" => install_from_tar(path),
         Some(ext) if ext == "gz" || ext == "tgz" => install_from_tar_gz(path),
         Some(ext) => {
             let error_msg = format!("Unsupported file type for installation: {:?}", ext);
-            Err(Error::new(std::io::ErrorKind::InvalidInput, error_msg))
+            Err(Error::new(io::ErrorKind::InvalidInput, error_msg))
         }
         None => {
             let error_msg =
                 "No file extension found. Please provide a valid archive file (zip, tar, tar.gz).";
-            Err(Error::new(std::io::ErrorKind::InvalidInput, error_msg))
+            Err(Error::new(io::ErrorKind::InvalidInput, error_msg))
         }
     }
 }
 
-pub fn install_from_zip(path: &PathBuf) -> std::io::Result<()> {
+pub fn install_from_zip(path: &PathBuf) -> io::Result<()> {
     // Placeholder for actual zip extraction logic
     let mut archive = zip::ZipArchive::new(File::open(path)?)?;
     for i in 0..archive.len() {
@@ -44,23 +46,9 @@ pub fn install_from_zip(path: &PathBuf) -> std::io::Result<()> {
             None => continue,
         };
 
-        {
-            let comment = file.comment();
-            if !comment.is_empty() {
-                println!("File {i} comment: {comment}");
-            }
-        }
-
         if file.is_dir() {
-            println!("File {} extracted to \"{}\"", i, outpath.display());
             fs::create_dir_all(&outpath).unwrap();
         } else {
-            println!(
-                "File {} extracted to \"{}\" ({} bytes)",
-                i,
-                outpath.display(),
-                file.size()
-            );
             if let Some(p) = outpath.parent() {
                 if !p.exists() {
                     fs::create_dir_all(p).unwrap();
@@ -80,58 +68,141 @@ pub fn install_from_zip(path: &PathBuf) -> std::io::Result<()> {
             }
         }
     }
-    println!("Extracting zip archive at {:?}", path);
-    Ok(())
+    let fname = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            Error::new(
+                io::ErrorKind::InvalidInput,
+                "Provided path has no valid file name",
+            )
+        })?
+        .strip_suffix(".zip")
+        .ok_or_else(|| {
+            Error::new(
+                io::ErrorKind::InvalidInput,
+                "File name does not end with .zip",
+            )
+        })?
+        .to_string();
+    // trim end matching .tar.gz or .tgz
+    unroll_folder(&PathBuf::from(fname))
 }
 
-pub fn install_from_tar(path: &PathBuf) -> std::io::Result<()> {
+pub fn install_from_tar(path: &PathBuf) -> io::Result<()> {
     let file = File::open(path)?;
     let mut archive = tar::Archive::new(file);
     let current_exe_path = env::current_exe().map_err(Error::other)?;
     let parent_dir = current_exe_path.parent().ok_or_else(|| {
         Error::new(
-            std::io::ErrorKind::NotFound,
+            io::ErrorKind::NotFound,
             "Current executable path has no parent",
         )
     })?;
-    archive.unpack(parent_dir)
+    archive.unpack(parent_dir)?;
+    let basename = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| Error::new(io::ErrorKind::InvalidInput, "Invalid file name"))?;
+    let unrolled_path = parent_dir.join(basename);
+    unroll_folder(&unrolled_path)
 }
 
-pub fn install_from_tar_gz(path: &PathBuf) -> std::io::Result<()> {
+pub fn unroll_folder(path: &PathBuf) -> io::Result<()> {
+    if !path.is_dir() {
+        return Ok(());
+    }
+    let parent_dir = path.parent().ok_or_else(|| {
+        Error::new(
+            io::ErrorKind::NotFound,
+            "Provided path has no parent directory",
+        )
+    })?;
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let dest_path = parent_dir.join(entry.file_name());
+        if dest_path.exists() {
+            fs::remove_file(&dest_path).or_else(|_| fs::remove_dir_all(&dest_path))?;
+        }
+        fs::rename(entry.path(), dest_path)?;
+    }
+    fs::remove_dir_all(path)?;
+    Ok(())
+}
+
+pub fn install_from_tar_gz(path: &PathBuf) -> io::Result<()> {
     let file = File::open(path)?;
-    let file = std::io::BufReader::new(file);
+    let file = io::BufReader::new(file);
     let decompresed = GzDecoder::new(file);
     let mut archive = tar::Archive::new(decompresed);
     // get exectuable path
     let current_exe_path = env::current_exe().map_err(Error::other)?;
     let parent_dir = current_exe_path.parent().ok_or_else(|| {
         Error::new(
-            std::io::ErrorKind::NotFound,
+            io::ErrorKind::NotFound,
             "Current executable path has no parent",
         )
     })?;
 
-    archive.unpack(parent_dir)
+    archive.unpack(parent_dir)?;
+    let fname = path
+        .file_name()
+        .ok_or_else(|| {
+            Error::new(
+                io::ErrorKind::InvalidInput,
+                "Provided path has no file name",
+            )
+        })?
+        .to_str()
+        .ok_or_else(|| Error::new(io::ErrorKind::InvalidInput, "File name is not valid UTF-8"))?
+        .strip_suffix(".tar.gz")
+        .ok_or_else(|| {
+            Error::new(
+                io::ErrorKind::InvalidInput,
+                "File name does not end with .tar.gz",
+            )
+        })?
+        .to_string();
+    // trim end matching .tar.gz or .tgz
+    unroll_folder(&PathBuf::from(fname))
 }
 
-pub fn download_archive(url: &str) -> std::io::Result<PathBuf> {
-    let temp_file = temp_dir().join("downloaded_archive");
-    let mut file = File::create(&temp_file).map_err(Error::other)?;
+pub fn download_archive(url: &str) -> io::Result<PathBuf> {
     let response = get(url).map_err(Error::other)?;
-    if !response.status().is_success() {
-        return Err(Error::other(format!(
-            "Failed to download file: {}",
-            response.status()
-        )));
+    // get filename from content-disposition header if available
+    let filename = response
+        .headers()
+        .get(reqwest::header::CONTENT_DISPOSITION)
+        .and_then(|cd| cd.to_str().ok())
+        .and_then(|cd| {
+            cd.split(';')
+                .find_map(|part| part.trim().strip_prefix("filename="))
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "downloaded_archive.tar.gz".to_string());
+    let total_size = response
+        .headers()
+        .get(reqwest::header::CONTENT_LENGTH)
+        .and_then(|len| len.to_str().ok())
+        .and_then(|len| len.parse::<u64>().ok());
+    let mut source = response;
+    let mut buffer = [0; 8192];
+    let temp_dir = temp_dir();
+    let temp_file = temp_dir.join(&filename);
+    let mut dest = File::create(&temp_file).map_err(Error::other)?;
+    loop {
+        let n = source.read(&mut buffer).map_err(Error::other)?;
+        if n == 0 {
+            break; // EOF
+        }
+        dest.write_all(&buffer[..n]).map_err(Error::other)?;
     }
-    let content = response
-        .bytes()
-        .map_err(|e| Error::other(format!("Failed to read response: {}", e)))?;
-    copy(&mut content.as_ref(), &mut file).map_err(Error::other)?;
+
     Ok(temp_file)
 }
 
-pub fn download_install_archive(url: &str) -> std::io::Result<()> {
+pub fn download_install_archive(url: &str) -> io::Result<()> {
     let download_result = download_archive(url)?;
+    eprintln!("Downloaded archive to: {:?}", download_result);
     install_archive(&download_result)
 }
