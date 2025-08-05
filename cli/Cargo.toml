@@ -4,5 +4,9 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4.5.42", features = ["derive"] }
+console = { version = "0.16.0", features = ["windows-console-colors"] }
 git-version = "0.3.9"
+indicatif = "0.18.0"
 lib = { path = "../lib" }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.142"
