@@ -7,6 +7,7 @@ edition = "2024"
 console = { version = "0.16.0", features = ["windows-console-colors"] }
 flate2 = "1.1.2"
 indicatif = "0.18.0"
+regex = "1.11.1"
 reqwest = { version = "0.12.22", features = ["blocking"] }
 rhai = "1.22.2"
 semver = "1.0.26"

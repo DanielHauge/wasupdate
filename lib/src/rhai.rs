@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use regex::Regex;
 use rhai::{AST, Engine, EvalAltResult, Scope};
 use semver::Version;
 
@@ -21,13 +22,21 @@ const CURRENT_VERSION_FN: &str = "current_version";
 const LATEST_VERSION_FN: &str = "latest_version";
 const INSTALL_VERSION_FN: &str = "install_version";
 
+fn extract_version(input: &str) -> Option<String> {
+    let re = Regex::new(r"\b[vV]?(\d+)\.(\d+)\.(\d+)\b").unwrap();
+    re.captures(input)
+        .map(|caps| format!("{}.{}.{}", &caps[1], &caps[2], &caps[3]))
+}
+
 impl WasaupEngine {
     pub fn current_version(&self) -> RhaiResult<Version> {
         let semver_str =
             self.engine
                 .call_fn::<String>(&mut Scope::new(), &self.ast, CURRENT_VERSION_FN, ())?;
         let semver_str = semver_str.trim();
-        let semver = match semver::Version::parse(semver_str) {
+        let semver_extracted = extract_version(semver_str)
+            .ok_or_else(|| format!("Failed to extract version from: '{semver_str}'"))?;
+        let semver = match semver::Version::parse(&semver_extracted) {
             Ok(version) => version,
             Err(e) => {
                 let error_msg = format!("Failed to parse '{semver_str}' as current version: {}", e);
@@ -43,7 +52,9 @@ impl WasaupEngine {
             self.engine
                 .call_fn::<String>(&mut Scope::new(), &self.ast, LATEST_VERSION_FN, ())?;
         let semver_str = semver_str.trim();
-        let semver = match semver::Version::parse(semver_str) {
+        let semver_extracted = extract_version(semver_str)
+            .ok_or_else(|| format!("Failed to extract version from: '{semver_str}'"))?;
+        let semver = match semver::Version::parse(&semver_extracted) {
             Ok(version) => version,
             Err(e) => {
                 let error_msg = format!("Failed to parse '{semver_str}' as latest version: {}", e);
