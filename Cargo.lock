@@ -948,7 +948,9 @@ dependencies = [
 name = "lib"
 version = "0.1.0"
 dependencies = [
+ "console",
  "flate2",
+ "indicatif",
  "reqwest",
  "rhai",
  "semver",

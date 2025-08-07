@@ -8,13 +8,16 @@ use std::{
 use flate2::bufread::GzDecoder;
 use reqwest::blocking::get;
 
+use crate::{
+    STDOUT_WRITE,
+    print::{p_good, p_success},
+};
+
 pub fn install(loc: &str) -> io::Result<()> {
     let path = PathBuf::from(loc);
     if path.exists() && path.is_file() {
-        eprintln!("Installing from local archive: {:?}", path);
         install_archive(&path)
     } else {
-        eprintln!("Downloading and installing from URL: {}", loc);
         download_install_archive(loc)
     }
 }
@@ -38,13 +41,30 @@ pub fn install_archive(path: &PathBuf) -> io::Result<()> {
 
 pub fn install_from_zip(path: &PathBuf) -> io::Result<()> {
     // Placeholder for actual zip extraction logic
+
     let mut archive = zip::ZipArchive::new(File::open(path)?)?;
+    let archive_len = archive.len();
+    let pb = if unsafe { STDOUT_WRITE } {
+        indicatif::ProgressBar::new(archive_len as u64).with_style(
+            indicatif::ProgressStyle::default_spinner()
+                .template("{spinner:.green} {msg} ({elapsed_precise})")
+                .unwrap(),
+        )
+    } else {
+        indicatif::ProgressBar::hidden()
+    };
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).unwrap();
         let outpath = match file.enclosed_name() {
             Some(path) => path,
             None => continue,
         };
+        pb.set_message(format!(
+            "Extracting {} ({}/{})",
+            outpath.display(),
+            i + 1,
+            archive_len
+        ));
 
         if file.is_dir() {
             fs::create_dir_all(&outpath).unwrap();
@@ -90,6 +110,7 @@ pub fn install_from_zip(path: &PathBuf) -> io::Result<()> {
 }
 
 pub fn install_from_tar(path: &PathBuf) -> io::Result<()> {
+    eprintln!("Installing from TAR archive: {:?}", path);
     let file = File::open(path)?;
     let mut archive = tar::Archive::new(file);
     let current_exe_path = env::current_exe().map_err(Error::other)?;
@@ -131,6 +152,7 @@ pub fn unroll_folder(path: &PathBuf) -> io::Result<()> {
 }
 
 pub fn install_from_tar_gz(path: &PathBuf) -> io::Result<()> {
+    eprintln!("Installing from TAR.GZ archive: {:?}", path);
     let file = File::open(path)?;
     let file = io::BufReader::new(file);
     let decompresed = GzDecoder::new(file);
@@ -169,22 +191,29 @@ pub fn install_from_tar_gz(path: &PathBuf) -> io::Result<()> {
 
 pub fn download_archive(url: &str) -> io::Result<PathBuf> {
     let response = get(url).map_err(Error::other)?;
-    // get filename from content-disposition header if available
-    let filename = response
-        .headers()
-        .get(reqwest::header::CONTENT_DISPOSITION)
-        .and_then(|cd| cd.to_str().ok())
-        .and_then(|cd| {
-            cd.split(';')
-                .find_map(|part| part.trim().strip_prefix("filename="))
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| "downloaded_archive.tar.gz".to_string());
+    // Get filename from last part of the URL
+    let filename = url
+        .rsplit('/')
+        .next()
+        .ok_or_else(|| Error::new(io::ErrorKind::InvalidInput, "Invalid URL"))?
+        .to_string();
+
     let total_size = response
         .headers()
         .get(reqwest::header::CONTENT_LENGTH)
         .and_then(|len| len.to_str().ok())
         .and_then(|len| len.parse::<u64>().ok());
+    let pb = if unsafe { STDOUT_WRITE } {
+        indicatif::ProgressBar::new(total_size.unwrap_or(0))
+            .with_style(
+                indicatif::ProgressStyle::default_bar()
+                    .template("{spinner:.green} {msg} [{elapsed_precise}] {wide_bar} {bytes}/{total_bytes} ({eta})")
+                    .unwrap(),
+            )
+            .with_message(format!("Downloading {}", filename))
+    } else {
+        indicatif::ProgressBar::hidden()
+    };
     let mut source = response;
     let mut buffer = [0; 8192];
     let temp_dir = temp_dir();
@@ -196,13 +225,21 @@ pub fn download_archive(url: &str) -> io::Result<PathBuf> {
             break; // EOF
         }
         dest.write_all(&buffer[..n]).map_err(Error::other)?;
+        pb.inc(n as u64);
     }
+    pb.finish_with_message("Download complete");
 
     Ok(temp_file)
 }
 
 pub fn download_install_archive(url: &str) -> io::Result<()> {
     let download_result = download_archive(url)?;
-    eprintln!("Downloaded archive to: {:?}", download_result);
+    p_good(
+        format!(
+            "Download complete, proceding to install: {}",
+            download_result.display()
+        )
+        .as_str(),
+    );
     install_archive(&download_result)
 }

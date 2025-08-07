@@ -1,14 +1,11 @@
-use std::{
-    fs::{self, write},
-    path::PathBuf,
-    process::exit,
-};
+use std::{fs::write, path::PathBuf, process::exit};
 
 use clap::Parser;
 use console::{Emoji, style};
 use git_version::git_version;
 use lib::{
     install::install,
+    print::{p_error, p_success},
     rhai::{Script, WasaupEngine},
 };
 
@@ -95,20 +92,6 @@ fn install_version(version) {
     return "path/to/archive-" + version + ".tar.gz";
 }"#;
 
-pub fn p_error(msg: &str, etype: &str) {
-    eprintln!(
-        "{} {}: {}\n\n{}\n",
-        Emoji("❗", "!"),
-        style("Error: ").bold().underlined().red(),
-        etype,
-        style(msg),
-    );
-}
-
-pub fn p_success(msg: &str) {
-    println!("{} {}", Emoji("✅", "✔️"), style(msg).bold().underlined(),);
-}
-
 pub fn init(script: &str, json: bool) {
     if PathBuf::from(script).exists() {}
     let write_result = write(script, DEFAULT_SCRIPT);
@@ -154,6 +137,9 @@ fn main() {
 
     if !args.json {
         p_header();
+        unsafe {
+            lib::STDOUT_WRITE = true;
+        }
     }
 
     if args.init {
