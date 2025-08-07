@@ -10,15 +10,23 @@ use reqwest::blocking::get;
 
 use crate::{
     STDOUT_WRITE,
-    print::p_good,
+    print::{p_error, p_good},
 };
 
 pub fn install(loc: &str) -> io::Result<()> {
     let path = PathBuf::from(loc);
     if path.exists() && path.is_file() {
         install_archive(&path)
-    } else {
+    } else if reqwest::Url::parse(loc).is_ok() {
         download_install_archive(loc)
+    } else {
+        Err(Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "Location at '{}' appears to be an invalid URL and not exist locally.",
+                loc
+            ),
+        ))
     }
 }
 
@@ -42,6 +50,7 @@ pub fn install_archive(path: &PathBuf) -> io::Result<()> {
 pub fn install_from_zip(path: &PathBuf) -> io::Result<()> {
     // Placeholder for actual zip extraction logic
 
+    eprintln!("Installing from ZIP archive: {:?}", path);
     let mut archive = zip::ZipArchive::new(File::open(path)?)?;
     let archive_len = archive.len();
     let pb = if unsafe { STDOUT_WRITE } {
@@ -190,6 +199,8 @@ pub fn install_from_tar_gz(path: &PathBuf) -> io::Result<()> {
 }
 
 pub fn download_archive(url: &str) -> io::Result<PathBuf> {
+    reqwest::Url::parse(url)
+        .map_err(|e| Error::new(io::ErrorKind::InvalidInput, format!("Invalid URL: {}", e)))?;
     let response = get(url).map_err(Error::other)?;
     // Get filename from last part of the URL
     let filename = url
