@@ -93,7 +93,22 @@ fn install_version(version) {
 }"#;
 
 pub fn init(script: &str, json: bool) {
-    if PathBuf::from(script).exists() {}
+    if PathBuf::from(script).exists() {
+        if json {
+            let json_output = serde_json::json!({
+                "error": "Update script already exists.",
+                "script": script,
+            });
+            println!("{}", serde_json::to_string_pretty(&json_output).unwrap());
+        } else {
+            let etype = format!("Script file already exists {}", Emoji("📄", "📃"));
+            p_error(
+                format!("The update script file at {} already exists.", script).as_str(),
+                &etype,
+            );
+        }
+        exit(1);
+    }
     let write_result = write(script, DEFAULT_SCRIPT);
     match write_result {
         Ok(()) => {
