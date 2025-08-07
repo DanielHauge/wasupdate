@@ -10,7 +10,7 @@ use reqwest::blocking::get;
 
 use crate::{
     STDOUT_WRITE,
-    print::{p_good, p_success},
+    print::p_good,
 };
 
 pub fn install(loc: &str) -> io::Result<()> {
