@@ -79,6 +79,7 @@ impl WasaupEngine {
         let mut engine = Engine::new();
         engine.register_fn("fetch", utilities::fetch);
         engine.register_fn("run", utilities::run);
+        engine.register_fn("jq", utilities::jq);
         let ast = match script {
             Script::File(path) => engine.compile_file(path)?,
             Script::Inline(code) => engine.compile(code.as_str())?,

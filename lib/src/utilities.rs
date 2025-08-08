@@ -1,24 +1,43 @@
+use jmespath::{Variable, compile};
 use rhai::EvalAltResult;
+use serde_json::json;
 
 pub fn fetch(url: &str) -> Result<String, Box<EvalAltResult>> {
     let Ok(response) = reqwest::blocking::get(url) else {
-        let error_msg = format!("Failed to fetch URL: {}", url);
+        let error_msg = format!("Failed to fetch URL: {url}");
         return Err(error_msg.into());
     };
     if response.status().is_success() {
         let Ok(body) = response.text() else {
-            let error_msg = format!("Failed to read response body from URL: {}", url);
+            let error_msg = format!("Failed to read response body from URL: {url}");
             return Err(error_msg.into());
         };
         Ok(body)
     } else {
-        let error_msg = format!(
-            "Failed to fetch URL: {} with status: {}",
-            url,
-            response.status()
-        );
+        let response_status = response.status();
+        let error_msg = format!("Failed to fetch URL: {url} with status: {response_status}");
         Err(error_msg.into())
     }
+}
+
+pub fn jq(json_str: &str, query: &str) -> Result<String, Box<EvalAltResult>> {
+    let expr = match compile(query) {
+        Ok(k) => k,
+        Err(e) => {
+            let error_msg = format!("Failed to compile JMESPath query: {query}, error: {e}");
+            return Err(error_msg.into());
+        }
+    };
+    let json_var = Variable::from_json(json_str)
+        .map_err(|e| format!("Failed to convert JSON string to variable: {e}"))?;
+    let result = match expr.search(json_var) {
+        Ok(res) => res,
+        Err(e) => {
+            let error_msg = format!("Failed to execute JMESPath query: {query}, error: {e}");
+            return Err(error_msg.into());
+        }
+    };
+    Ok(result.to_string())
 }
 
 pub fn run(cmd: &str) -> Result<String, Box<EvalAltResult>> {
@@ -37,7 +56,7 @@ pub fn run(cmd: &str) -> Result<String, Box<EvalAltResult>> {
             match output {
                 Ok(o) => o,
                 Err(e) => {
-                    let error_msg = format!("Failed to execute command '{}': {}", cmd, e);
+                    let error_msg = format!("Failed to execute command '{cmd}': {e}");
                     return Err(error_msg.into());
                 }
             }
@@ -47,7 +66,8 @@ pub fn run(cmd: &str) -> Result<String, Box<EvalAltResult>> {
         let output_str = String::from_utf8_lossy(&output.stdout).to_string();
         Ok(output_str)
     } else {
-        let error_msg = format!("Command '{}' failed with status: {}", cmd, output.status);
+        let output_status = output.status;
+        let error_msg = format!("Command '{cmd}' failed with status: {output_status}");
         Err(error_msg.into())
     }
 }
