@@ -35,15 +35,7 @@ pub fn install_archive(path: &PathBuf) -> io::Result<()> {
         Some(ext) if ext == "zip" => install_from_zip(path),
         Some(ext) if ext == "tar" => install_from_tar(path),
         Some(ext) if ext == "gz" || ext == "tgz" => install_from_tar_gz(path),
-        Some(ext) => {
-            let error_msg = format!("Unsupported file type for installation: {:?}", ext);
-            Err(Error::new(io::ErrorKind::InvalidInput, error_msg))
-        }
-        None => {
-            let error_msg =
-                "No file extension found. Please provide a valid archive file (zip, tar, tar.gz).";
-            Err(Error::new(io::ErrorKind::InvalidInput, error_msg))
-        }
+        _ => install_simple_file(path),
     }
 }
 
@@ -138,6 +130,27 @@ pub fn install_from_tar(path: &PathBuf) -> io::Result<()> {
     unroll_folder(&unrolled_path)
 }
 
+pub fn install_simple_file(path: &PathBuf) -> io::Result<()> {
+    let current_exe_path = env::current_exe().map_err(Error::other)?;
+    let parent_dir = current_exe_path.parent().ok_or_else(|| {
+        Error::new(
+            io::ErrorKind::NotFound,
+            "Current executable path has no parent",
+        )
+    })?;
+    let dest_path = parent_dir.join(path.file_name().ok_or_else(|| {
+        Error::new(
+            io::ErrorKind::InvalidInput,
+            "Provided path has no file name",
+        )
+    })?);
+    if dest_path.exists() {
+        fs::remove_file(&dest_path).or_else(|_| fs::remove_dir_all(&dest_path))?;
+    }
+    fs::copy(path, dest_path)?;
+    Ok(())
+}
+
 pub fn unroll_folder(path: &PathBuf) -> io::Result<()> {
     if !path.is_dir() {
         return Ok(());
@@ -200,14 +213,31 @@ pub fn install_from_tar_gz(path: &PathBuf) -> io::Result<()> {
 
 pub fn download_archive(url: &str) -> io::Result<PathBuf> {
     reqwest::Url::parse(url)
-        .map_err(|e| Error::new(io::ErrorKind::InvalidInput, format!("Invalid URL: {}", e)))?;
+        .map_err(|e| Error::new(io::ErrorKind::InvalidInput, format!("Invalid URL: {e}")))?;
     let response = get(url).map_err(Error::other)?;
     // Get filename from last part of the URL
-    let filename = url
+    // Try get header from Content-Disposition, if not available, use last part of the URL
+    let file_name_from_content_disposition = response
+        .headers()
+        .get(reqwest::header::CONTENT_DISPOSITION)
+        .and_then(|cd| cd.to_str().ok())
+        .and_then(|cd| {
+            cd.split(';').find_map(|part| {
+                if part.trim_start().starts_with("filename=") {
+                    part.split('=')
+                        .nth(1)
+                        .map(|s| s.trim_matches('"').to_string())
+                } else {
+                    None
+                }
+            })
+        });
+    let filename_from_url = url
         .rsplit('/')
         .next()
         .ok_or_else(|| Error::new(io::ErrorKind::InvalidInput, "Invalid URL"))?
         .to_string();
+    let filename = file_name_from_content_disposition.unwrap_or_else(|| filename_from_url.clone());
 
     let total_size = response
         .headers()
@@ -221,7 +251,7 @@ pub fn download_archive(url: &str) -> io::Result<PathBuf> {
                     .template("{spinner:.green} {msg} [{elapsed_precise}] {wide_bar} {bytes}/{total_bytes} ({eta})")
                     .unwrap(),
             )
-            .with_message(format!("Downloading {}", filename))
+            .with_message(format!("Downloading {filename}"))
     } else {
         indicatif::ProgressBar::hidden()
     };
