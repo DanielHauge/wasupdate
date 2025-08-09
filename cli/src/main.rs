@@ -82,7 +82,18 @@ fn p_header() {
     );
 }
 
-const DEFAULT_SCRIPT: &str = r#"fn current_version() {
+const DEFAULT_SCRIPT: &str = r#"
+///// Wasaupdate script
+///// Functions available:
+// fetch(url: String) -> String
+// jq(json_str: String, query: String) -> String
+// run(cmd: String) -> String
+// exists(path: String) -> bool
+// env(key: String) -> String
+// read(path: String) -> String
+// write(path: String, content: String) 
+
+fn current_version() {
     return "0.1.0";
 }
 fn latest_version() {
@@ -90,6 +101,9 @@ fn latest_version() {
 }
 fn install_version(version) {
     return "path/to/archive-" + version + ".tar.gz";
+}
+fn post_install(version) {
+    print("Success at installing version: " + version);
 }"#;
 
 pub fn init(script: &str, json: bool) {
@@ -306,6 +320,13 @@ fn main() {
                     println!("{}", serde_json::to_string_pretty(&json_output).unwrap());
                 } else {
                     p_success("Update completed successfully.");
+                    wasup_engine
+                        .post_install(&checked_version.latest.to_string())
+                        .unwrap_or_else(|e| {
+                            let etype = format!("Post-install script failed {}", Emoji("⚙️", "⚙️"));
+                            p_error(&format!("{e}"), &etype);
+                            std::process::exit(1);
+                        });
                 }
             }
             Err(e) => {
@@ -317,7 +338,7 @@ fn main() {
                     println!("{}", serde_json::to_string_pretty(&json_output).unwrap());
                 } else {
                     let etype = format!("Failed to install latest version {}", Emoji("⚠️", "⚠️"));
-                    p_error(&format!("Failed to install latest version: {}", e), &etype);
+                    p_error(&format!("{e}"), &etype);
                 }
                 std::process::exit(1);
             }

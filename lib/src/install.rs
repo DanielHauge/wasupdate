@@ -41,7 +41,6 @@ pub fn install_archive(path: &PathBuf) -> io::Result<()> {
 
 pub fn install_from_zip(path: &PathBuf) -> io::Result<()> {
     // Placeholder for actual zip extraction logic
-
     eprintln!("Installing from ZIP archive: {:?}", path);
     let mut archive = zip::ZipArchive::new(File::open(path)?)?;
     let archive_len = archive.len();

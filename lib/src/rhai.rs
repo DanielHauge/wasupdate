@@ -16,11 +16,13 @@ pub enum Script {
 pub struct WasaupEngine {
     engine: Engine,
     ast: AST,
+    has_post_install: bool,
 }
 
 const CURRENT_VERSION_FN: &str = "current_version";
 const LATEST_VERSION_FN: &str = "latest_version";
 const INSTALL_VERSION_FN: &str = "install_version";
+const POST_INSTALL_FN: &str = "post_install";
 
 fn extract_version(input: &str) -> Option<String> {
     let re = Regex::new(r"\b[vV]?(\d+)\.(\d+)\.(\d+)\b").unwrap();
@@ -75,11 +77,27 @@ impl WasaupEngine {
         Ok(archive_loc)
     }
 
+    pub fn post_install(&self, version: &str) -> RhaiResult<()> {
+        if !self.has_post_install {
+            return Ok(());
+        }
+        self.engine.call_fn::<()>(
+            &mut Scope::new(),
+            &self.ast,
+            POST_INSTALL_FN,
+            (version.to_string(),),
+        )
+    }
+
     pub fn new(script: Script) -> RhaiResult<WasaupEngine> {
         let mut engine = Engine::new();
         engine.register_fn("fetch", utilities::fetch);
         engine.register_fn("run", utilities::run);
         engine.register_fn("jq", utilities::jq);
+        engine.register_fn("exists", utilities::exists);
+        engine.register_fn("env", utilities::env);
+        engine.register_fn("read", utilities::read);
+        engine.register_fn("write", utilities::write);
         let ast = match script {
             Script::File(path) => engine.compile_file(path)?,
             Script::Inline(code) => engine.compile(code.as_str())?,
@@ -88,6 +106,7 @@ impl WasaupEngine {
         let mut has_latest_version = false;
         let mut has_current_version = false;
         let mut has_install_version = false;
+        let mut has_post_install = false;
         for func in ast.iter_functions() {
             match func.name {
                 LATEST_VERSION_FN => {
@@ -144,6 +163,21 @@ impl WasaupEngine {
                     }
                     has_install_version = true
                 }
+                POST_INSTALL_FN => {
+                    // Check if the function is public
+                    if func.access.is_private() {
+                        continue; // Skip private post_install functions
+                    }
+                    if func.params.len() != 1 {
+                        continue; // Skip post_install functions with incorrect parameters
+                    }
+                    // Check if the parameter is a string
+                    if func.params[0] != "version" {
+                        continue; // Skip post_install functions with incorrect parameters
+                    }
+                    // Check if the function is public
+                    has_post_install = true;
+                }
                 _ => {}
             }
         }
@@ -162,7 +196,11 @@ impl WasaupEngine {
             );
         }
 
-        Ok(Self { engine, ast })
+        Ok(Self {
+            engine,
+            ast,
+            has_post_install,
+        })
     }
 }
 

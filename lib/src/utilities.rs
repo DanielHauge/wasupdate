@@ -72,6 +72,25 @@ pub fn run(cmd: &str) -> Result<String, Box<EvalAltResult>> {
     }
 }
 
+pub fn exists(path: &str) -> bool {
+    let path = std::path::Path::new(path);
+    path.exists()
+}
+
+pub fn env(key: &str) -> Result<String, Box<EvalAltResult>> {
+    std::env::var(key)
+        .map_err(|e| format!("Failed to get environment variable '{key}': {e}").into())
+}
+
+pub fn read(path: &str) -> Result<String, Box<EvalAltResult>> {
+    std::fs::read_to_string(path).map_err(|e| format!("Failed to read file '{path}': {e}").into())
+}
+
+pub fn write(path: &str, content: &str) -> Result<(), Box<EvalAltResult>> {
+    std::fs::write(path, content)
+        .map_err(|e| format!("Failed to write to file '{path}': {e}").into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
